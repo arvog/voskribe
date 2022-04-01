@@ -11,14 +11,11 @@ import math
 
 
 # function to initialize vosk
-def initvosk():
+def initvosk(chosenmodel):
     print("\nInitalizing vosk model...")
     SetLogLevel(0)
-    if not os.path.exists("model"):
-        print ("No model found. Download from https://alphacephei.com/vosk/models and unpack as 'model' in the current folder.")
-        exit (1)
     global model
-    model = Model("model")
+    model = Model(chosenmodel)
     SetLogLevel(-1)
     print('')
 
@@ -86,30 +83,24 @@ def transcribe( file ):
 def checkpath( thispath ):
     if os.path.isfile(thispath):
         if thispath.endswith('.wav'):
+            print("Going on with specified WAV file.")
             initvosk()
             transcribe(thispath)
             exit(1)
         elif thispath.endswith(tuple(fileformats)):
+            print("Going on with specified media file.")
             initvosk()
             transcribe(convert2audio(thispath))
             exit(1)
         else:
-            print("Sorry, can only transcribe WAV, MKV or MP4 files. Exiting.")
-            exit(1)
+            print("Sorry, can only transcribe media files.")
+            return []
     if os.path.isdir(thispath):
         workable = [x for x in os.listdir(thispath) if x.endswith(tuple(fileformats))]
         if len(workable) < 1:
-            print("No usable audio or video files there, either. Exiting.")
-            exit(1)
+            return []
         else:
-            print("Found", len(workable), "audio/video files there. Going on.")
             return thispath
-
-
-# check if overwriting is ok
-print("This will overwrite already existing TXT transcripts.")
-answer = str(input("Continue (Y/n)? "))
-if answer in ["n", "N"]: exit(1)
 
 
 # getting input files, prompt if there are none in work dir
@@ -117,12 +108,42 @@ currentpath = os.getcwd()
 # typical formats for Telegram audio messages: ogg, m4a, mp3, opus
 fileformats = ['.wav', '.mk4', '.mp4', '.m4a', '.mp3', '.ogg', '.opus']
 workable = [x for x in os.listdir(currentpath) if x.endswith(tuple(fileformats))]
-if len(workable) < 1:
-    print("\nNo usable audio or video files found in current directory. \nDo you want to transcribe a file/directory elsewhere?")
-    newpath = str(input("path: "))
-    currentpath = checkpath(newpath)
+if len(workable) > 1:
+    answer = str(input(f"Found {len(workable)} in current directory. Transcribe those (y/N)? "))
+    if answer not in ["y", "Y"]: workable = []
+while len(workable) < 1:
+    print("\nNo usable media files found in directory. \nDo you want to transcribe from a file/directory elsewhere?")
+    # newpath = str(input("path: "))
+    currentpath = checkpath(str(input("path: ")))
+    workable = [x for x in os.listdir(currentpath) if x.endswith(tuple(fileformats))]
 
-initvosk()
+
+# check if overwriting is ok
+if len([x for x in os.listdir(currentpath) if x.endswith(tuple('txt'))]) > 0:
+    print("\nThis will overwrite already existing TXT transcripts.")
+    answer = str(input("Continue (Y/n)? "))
+    if answer in ["n", "N"]: exit(1)
+
+
+print(f"Going on with {len(workable)} audio/video file(s).")
+likelymodels = [x for x in os.scandir(os.getcwd()) if str(x).find('model') > -1]
+if len(likelymodels) < 1:
+    print ("\nNo language model found. Download from https://alphacephei.com/vosk/models and unpack in the current folder.")
+    exit(1)
+if len(likelymodels) == 1:
+    chosenmodel = likelymodels[0]
+else:
+    print("\nWhich language model do you want to use?")
+    print(*(('[{0}] {1}\n').format(i, m.name) for i, m in enumerate(likelymodels, 1)), sep='')
+    numbers = [*range(1,len(likelymodels)+1)]
+    answer = input(f"Number {numbers}: ")
+    while (int(answer) not in numbers) and (answer != '0'):
+        answer = str(input("Not a valid answer. Number (0 = quit): "))
+    if answer == '0': exit(1)
+    chosenmodel = likelymodels[int(answer)-1].name
+
+initvosk(chosenmodel)
+
 wavs = []
 others = []
 converted = []
