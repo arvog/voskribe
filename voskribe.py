@@ -10,7 +10,7 @@ import json
 import math
 
 
-# function to initialize vosk
+# function to initialize vosk with a user picked language model
 def initvosk(chosenmodel):
     print("\nInitalizing vosk model...")
     SetLogLevel(0)
@@ -20,7 +20,7 @@ def initvosk(chosenmodel):
     print('')
 
 
-# function to extract audio from video files or convert other formats to WAV
+# function to extract audio from video files or convert other audio formats to WAV
 def convert2audio( file ):
     global converted
     file_ext = os.path.splitext(file)
@@ -38,13 +38,17 @@ def convert2audio( file ):
 
 # function for vosk speech recognition
 def transcribe( file ):
+    #if a WAV to the requested media already existed, assume it has already been transcribed
     if file == "SkIpPeDeeDyP":
         return()
+    #open audio stream and check parameters
+    #TODO: implement conversion for existing WAVs outside of specs
     wf = wave.open(file, "rb")
     if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getcomptype() != "NONE":
         print ("Audio file must be WAV mono PCM. Skipping.")
         return()
 
+    #set up parameters
     results = []
     duration = wf.getnframes() / wf.getframerate()
     durmin = int(math.floor(duration/60))
@@ -54,6 +58,7 @@ def transcribe( file ):
 
     print('Transcribing audio file:', str(file))
 
+    #transcribe audio stream and print the progress
     while True:
         data = wf.readframes(4000)
         if len(data) == 0:
@@ -68,7 +73,7 @@ def transcribe( file ):
                 results.append(res)
                 print('{:02d}'.format(timemin)+':'+'{:02d}'.format(timesek)+' of '+'{:02d}'.format(durmin)+':'+'{:02d}'.format(dursek), end='\r')
 
-    # write results to file
+    # write results to TXT file with the same name
     root_ext = os.path.splitext(file)
     newfile = root_ext[0] + ".txt"
     old_stdout = sys.stdout
@@ -79,8 +84,9 @@ def transcribe( file ):
     print('Done.         ')
 
 
-# function to get input files/path when no files in work dir
+# function to get input location when no files in work dir
 def checkpath( thispath ):
+    #if user gives us a single file, check file type and progress or exit
     if os.path.isfile(thispath):
         if thispath.endswith('.wav'):
             print("Going on with specified WAV file.")
@@ -95,6 +101,7 @@ def checkpath( thispath ):
         else:
             print("Sorry, can only transcribe media files.")
             return []
+    #if user gives us a directory, check for files we can process inside it
     if os.path.isdir(thispath):
         workable = [x for x in os.listdir(thispath) if x.endswith(tuple(fileformats))]
         if len(workable) < 1:
@@ -105,7 +112,6 @@ def checkpath( thispath ):
 
 # getting input files, prompt if there are none in work dir
 currentpath = os.getcwd()
-# typical formats for Telegram audio messages: ogg, m4a, mp3, opus
 fileformats = ['.wav', '.mk4', '.mp4', '.m4a', '.mp3', '.ogg', '.opus']
 workable = [x for x in os.listdir(currentpath) if x.endswith(tuple(fileformats))]
 if len(workable) > 1:
@@ -113,25 +119,27 @@ if len(workable) > 1:
     if answer not in ["y", "Y"]: workable = []
 while len(workable) < 1:
     print("\nNo usable media files found in directory. \nDo you want to transcribe from a file/directory elsewhere?")
-    # newpath = str(input("path: "))
     currentpath = checkpath(str(input("path: ")))
     workable = [x for x in os.listdir(currentpath) if x.endswith(tuple(fileformats))]
 
 
-# check if overwriting is ok
+# check if overwriting existing transcription files is ok
 if len([x for x in os.listdir(currentpath) if x.endswith(tuple('txt'))]) > 0:
     print("\nThis will overwrite already existing TXT transcripts.")
     answer = str(input("Continue (Y/n)? "))
     if answer in ["n", "N"]: exit(1)
-
-
 print(f"Going on with {len(workable)} audio/video file(s).")
+
+
+#look for subfolders of current directory with the word "model" in them
 likelymodels = [x for x in os.scandir(os.getcwd()) if str(x).find('model') > -1]
 if len(likelymodels) < 1:
     print ("\nNo language model found. Download from https://alphacephei.com/vosk/models and unpack in the current folder.")
     exit(1)
+#if there is just one, automatically continue with that one
 if len(likelymodels) == 1:
     chosenmodel = likelymodels[0]
+#if there are more than one, let user choose
 else:
     print("\nWhich language model do you want to use?")
     print(*(('[{0}] {1}\n').format(i, m.name) for i, m in enumerate(likelymodels, 1)), sep='')
@@ -142,24 +150,33 @@ else:
     if answer == '0': exit(1)
     chosenmodel = likelymodels[int(answer)-1].name
 
+#initialize vosk with selected model
+#as of now, we can only choose our lamguage model at the beginning, as selecting for each individual file would be very time consuming and unpractical for larger numbers
+#TODO: implement some means of automatic language detection and choose model accordingly?
 initvosk(chosenmodel)
 
+#set up some lists we will use for batch processing
 wavs = []
 others = []
 converted = []
+
+#seperate WAV files from other media files
 for singlefile in workable:
     if singlefile.endswith('.wav'): wavs.append(singlefile)
     else: others.append(singlefile)
+#transcribe WAV files first, as they might be already existing conversions of other media files
 if len(wavs) >= 1:
     print("Processing", len(wavs), "WAV file(s)...")
     for singlewav in wavs:
         if not (currentpath == os.getcwd()): singlewav = currentpath + "/" + singlewav
         transcribe(singlewav)
+#then go on to convert and transcribe other media files
 if len(others) >= 1:
     print("\nProcessing", len(others), "other file(s)...")
     for singleother in others:
         if not (currentpath == os.getcwd()): singleother = currentpath + "/" + singleother
         transcribe(convert2audio(singleother))
+#if we created new WAVs, ask user whether to delete or keep them
 if len(converted) >= 1:
     print("\nCreated", len(converted), "WAV files")
     answer = str(input("Keep them (y/N)? "))
