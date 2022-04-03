@@ -11,7 +11,28 @@ import math
 
 
 # function to initialize vosk with a user picked language model
-def initvosk(chosenmodel):
+def initvosk():
+    #look for subfolders of current directory with the word "model" in them
+    likelymodels = [x for x in os.scandir(os.getcwd()) if str(x).find('model') > -1]
+    if len(likelymodels) < 1:
+        print ("\nNo language model found. Download from https://alphacephei.com/vosk/models and unpack in the current folder.")
+        exit(1)
+    #if there is just one, automatically continue with that one
+    if len(likelymodels) == 1:
+        chosenmodel = likelymodels[0]
+    #if there are more than one, let user choose
+    else:
+        print("\nWhich language model do you want to use?")
+        print(*(('[{0}] {1}\n').format(i, m.name) for i, m in enumerate(likelymodels, 1)), sep='')
+        numbers = [*range(1,len(likelymodels)+1)]
+        answer = input(f"Number {numbers}: ")
+        while (int(answer) not in numbers) and (answer != '0'):
+            answer = str(input("Not a valid answer. Number (0 = quit): "))
+        if answer == '0': exit(1)
+        chosenmodel = likelymodels[int(answer)-1].name
+    #initialize vosk with selected model
+    #as of now, we can only choose our language model at the beginning, as selecting for each individual file would be very time consuming and unpractical for larger numbers
+    #TODO: implement some means of automatic language detection and choose model accordingly?
     print("\nInitalizing vosk model...")
     SetLogLevel(0)
     global model
@@ -73,9 +94,9 @@ def transcribe( file ):
                 results.append(res)
                 print('{:02d}'.format(timemin)+':'+'{:02d}'.format(timesek)+' of '+'{:02d}'.format(durmin)+':'+'{:02d}'.format(dursek), end='\r')
 
-    # write results to TXT file with the same name
+    # write results to .transcription file with the same name
     root_ext = os.path.splitext(file)
-    newfile = root_ext[0] + ".txt"
+    newfile = root_ext[0] + ".transcript"
     old_stdout = sys.stdout
     sys.stdout = open(newfile, "w")
     print(*results, sep="\n")
@@ -122,38 +143,14 @@ while len(workable) < 1:
     currentpath = checkpath(str(input("path: ")))
     workable = [x for x in os.listdir(currentpath) if x.endswith(tuple(fileformats))]
 
-
 # check if overwriting existing transcription files is ok
-if len([x for x in os.listdir(currentpath) if x.endswith(tuple('txt'))]) > 0:
-    print("\nThis will overwrite already existing TXT transcripts.")
+if len([x for x in os.listdir(currentpath) if x.endswith('transcript')]) > 0:
+    print("\nThis will overwrite already existing transcripts.")
     answer = str(input("Continue (Y/n)? "))
     if answer in ["n", "N"]: exit(1)
 print(f"Going on with {len(workable)} audio/video file(s).")
 
-
-#look for subfolders of current directory with the word "model" in them
-likelymodels = [x for x in os.scandir(os.getcwd()) if str(x).find('model') > -1]
-if len(likelymodels) < 1:
-    print ("\nNo language model found. Download from https://alphacephei.com/vosk/models and unpack in the current folder.")
-    exit(1)
-#if there is just one, automatically continue with that one
-if len(likelymodels) == 1:
-    chosenmodel = likelymodels[0]
-#if there are more than one, let user choose
-else:
-    print("\nWhich language model do you want to use?")
-    print(*(('[{0}] {1}\n').format(i, m.name) for i, m in enumerate(likelymodels, 1)), sep='')
-    numbers = [*range(1,len(likelymodels)+1)]
-    answer = input(f"Number {numbers}: ")
-    while (int(answer) not in numbers) and (answer != '0'):
-        answer = str(input("Not a valid answer. Number (0 = quit): "))
-    if answer == '0': exit(1)
-    chosenmodel = likelymodels[int(answer)-1].name
-
-#initialize vosk with selected model
-#as of now, we can only choose our lamguage model at the beginning, as selecting for each individual file would be very time consuming and unpractical for larger numbers
-#TODO: implement some means of automatic language detection and choose model accordingly?
-initvosk(chosenmodel)
+initvosk()
 
 #set up some lists we will use for batch processing
 wavs = []
@@ -172,7 +169,7 @@ if len(wavs) >= 1:
         transcribe(singlewav)
 #then go on to convert and transcribe other media files
 if len(others) >= 1:
-    print("\nProcessing", len(others), "other file(s)...")
+    print("\nProcessing", len(others), "media file(s)...")
     for singleother in others:
         if not (currentpath == os.getcwd()): singleother = currentpath + "/" + singleother
         transcribe(convert2audio(singleother))
