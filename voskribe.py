@@ -133,7 +133,7 @@ def checkpath( thispath ):
 
 # getting input files, prompt if there are none in work dir
 currentpath = os.getcwd()
-fileformats = ['.wav', '.mk4', '.mp4', '.m4a', '.mp3', '.ogg', '.opus']
+fileformats = ['.wav', '.mk4', '.mp4', '.webm','.m4a', '.mp3', '.ogg', '.opus']
 workable = [x for x in os.listdir(currentpath) if x.endswith(tuple(fileformats))]
 if len(workable) > 1:
     answer = str(input(f"Found {len(workable)} in current directory. Transcribe those (y/N)? "))
