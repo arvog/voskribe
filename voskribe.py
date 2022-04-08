@@ -131,6 +131,11 @@ def checkpath( thispath ):
             return thispath
 
 
+#set up some lists we will use for batch processing
+wavs = []
+others = []
+converted = []
+
 # getting input files, prompt if there are none in work dir
 currentpath = os.getcwd()
 fileformats = ['.wav', '.mk4', '.mp4', '.webm','.m4a', '.mp3', '.ogg', '.opus']
@@ -151,11 +156,6 @@ if len([x for x in os.listdir(currentpath) if x.endswith('transcript')]) > 0:
 print(f"Going on with {len(workable)} audio/video file(s).")
 
 initvosk()
-
-#set up some lists we will use for batch processing
-wavs = []
-others = []
-converted = []
 
 #seperate WAV files from other media files
 for singlefile in workable:
