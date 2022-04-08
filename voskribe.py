@@ -8,6 +8,12 @@ import os
 import wave
 import json
 import math
+import srt
+import datetime
+from transformers import logging
+from recasepunc import CasePuncPredictor
+from recasepunc import WordpieceTokenizer
+from recasepunc import Config
 
 
 # function to initialize vosk with a user picked language model
@@ -23,6 +29,7 @@ def initvosk():
     #if there are more than one, let user choose
     else:
         print("\nWhich language model do you want to use?")
+        print("[0] quit")
         print(*(('[{0}] {1}\n').format(i, m.name) for i, m in enumerate(likelymodels, 1)), sep='')
         numbers = [*range(1,len(likelymodels)+1)]
         answer = input(f"Number {numbers}: ")
@@ -30,14 +37,43 @@ def initvosk():
             answer = str(input("Not a valid answer. Number (0 = quit): "))
         if answer == '0': exit(1)
         chosenmodel = likelymodels[int(answer)-1].name
-    #initialize vosk with selected model
-    #as of now, we can only choose our language model at the beginning, as selecting for each individual file would be very time consuming and unpractical for larger numbers
-    #TODO: implement some means of automatic language detection and choose model accordingly?
+
+    #look for subfolders of current directory with the word "recasepunc" in them
+    global predictor
+    likelymodels = [x for x in os.scandir(os.getcwd()) if str(x).find('recasepunc-') > -1]
+    if len(likelymodels) < 1:
+        print ("\nNo punctuation model found. Continuing without one.")
+        predictor = 0
+    #let user pick punctuation model
+    else:
+        print("\nDo you want to use a punctuation model?")
+        print("[0] none")
+        print(*(('[{0}] {1}\n').format(i, m.name) for i, m in enumerate(likelymodels, 1)), sep='')
+        numbers = [*range(1,len(likelymodels)+1)]
+        answer = input(f"Number {numbers}: ")
+        if (int(answer) not in numbers) or (answer == '0'):
+            print("None chosen.")
+            predictor = 0
+        else:
+            print("\nInitalizing punctuation model", str(likelymodels[int(answer)-1].name))
+            #infer language from directory name, assuming consistent naming convention by vosk (this is crappy but it works for now)
+            langindex = str(likelymodels[int(answer)-1].name).index('recasepunc-') + 11
+            langcode = str(likelymodels[int(answer)-1].name)[langindex] + str(likelymodels[int(answer)-1].name)[langindex+1]
+            print("language: ", langcode)
+            predictor = 1
+
+
+    #initialize vosk with selected models
+    #(as of now, we can only choose our language model at the beginning of batch processing, as selecting for each individual file would be very time consuming and unpractical for larger numbers)
     print("\nInitalizing vosk model...")
     SetLogLevel(0)
     global model
     model = Model(chosenmodel)
     SetLogLevel(-1)
+    if predictor != 0:
+            #initialize casepunc model
+            logging.set_verbosity_error()
+            predictor = CasePuncPredictor(str(likelymodels[int(answer)-1].name)+'/checkpoint', lang=langcode)
     print('')
 
 
@@ -48,7 +84,7 @@ def convert2audio( file ):
     newwav = file_ext[0]+".wav"
     if not os.path.exists(newwav):
         print("Converting audio from", file_ext[1].upper() , "file:", str(file))
-        callffmpeg = u"ffmpeg -i \'" + file + "\' -nostdin -hide_banner -loglevel error -ac 1 -ar 48000 \'" + newwav + "\'"
+        callffmpeg = u"ffmpeg -i \'" + str(file) + "\' -nostdin -hide_banner -loglevel error -ac 1 -ar 48000 \'" + newwav + "\'"
         subprocess.call(shlex.split(callffmpeg))
         converted.append(newwav)
         return str(newwav)
@@ -71,6 +107,8 @@ def transcribe( file ):
 
     #set up parameters
     results = []
+    subs = []
+    WORDS_PER_LINE = 7
     duration = wf.getnframes() / wf.getframerate()
     durmin = int(math.floor(duration/60))
     dursek = int(duration % 60)
@@ -85,27 +123,55 @@ def transcribe( file ):
         if len(data) == 0:
             break
         if rec.AcceptWaveform(data):
-            resultsjson = json.loads(rec.Result())
-            # the results dict for a given frame range has the following structure:
+            # the results data for a given frame range has the following structure:
             # {'result': [{'conf': 1.0, 'end': 3.9, 'start': 3.6, 'word': 'XXX'}, {etc...etc], {'conf': 1.0, 'end': 4.08, 'start': 3.9, 'word': 'YYY'}], 'text': 'XXX...YYY'}
-            if ("result" in resultsjson and "text" in resultsjson):
+            resultsjson = json.loads(rec.Result())
+            # sort words into our subtitle list
+            if "result" in resultsjson:
+                for j in range(0, len(resultsjson["result"]), WORDS_PER_LINE):
+                    line = resultsjson["result"][j : j + WORDS_PER_LINE]
+                    s = srt.Subtitle(index=len(subs),
+                        content=" ".join([l['word'] for l in line]),
+                        start=datetime.timedelta(seconds=line[0]['start']),
+                        end=datetime.timedelta(seconds=line[-1]['end']))
+                    subs.append(s)
+
+            # collect text lines into our fulltext list
+            if ("result" in resultsjson) and ("text" in resultsjson):
                 # we take the first start time, because this is where the whole text starts
                 # we could also calculate the duration here
                 starttime = int(resultsjson["result"][0]["start"])
                 timemin = math.floor(starttime/60)
                 timesek = starttime % 60
-                res = '{:02d}'.format(timemin)+':'+'{:02d}'.format(timesek)+' '+str(resultsjson['text'])
+                # the following would combine a time code with the text line
+                # res = '{:02d}'.format(timemin)+':'+'{:02d}'.format(timesek)+' '+str(resultsjson['text'])
+                res = str(resultsjson['text'])
                 results.append(res)
                 print('{:02d}'.format(timemin)+':'+'{:02d}'.format(timesek)+' of '+'{:02d}'.format(durmin)+':'+'{:02d}'.format(dursek), end='\r')
 
-    # write results to .transcription file with the same name
+    # feed the fulltext lines through recasepunc, if we can
+    if predictor != 0:
+        fulltext = " ".join(results)
+        tokens = list(enumerate(predictor.tokenize(fulltext)))
+        results = ""
+        for token, case_label, punc_label in predictor.predict(tokens, lambda x: x[1]):
+            prediction = predictor.map_punc_label(predictor.map_case_label(token[1], case_label), punc_label)
+            if token[1][0] != '#':
+               results = results + ' ' + prediction
+            else:
+               results = results + prediction
+
+    # write subs to .srt and fulltext to .transcript file with the same name
     root_ext = os.path.splitext(file)
+    newfile = root_ext[0] + ".srt"
+    with open(newfile, 'w') as f: f.write(srt.compose(subs))
     newfile = root_ext[0] + ".transcript"
-    old_stdout = sys.stdout
-    sys.stdout = open(newfile, "w")
-    print(*results, sep="\n")
-    sys.stdout.close()
-    sys.stdout = old_stdout
+    with open(newfile, 'w') as f: f.write(results)
+    #old_stdout = sys.stdout
+    #sys.stdout = open(newfile, "w")
+    #print(*results, sep="\n")
+    #sys.stdout.close()
+    #sys.stdout = old_stdout
     print('Done.         ')
 
 
