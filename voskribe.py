@@ -86,7 +86,11 @@ def transcribe( file ):
             break
         if rec.AcceptWaveform(data):
             resultsjson = json.loads(rec.Result())
+            # the results dict for a given frame range has the following structure:
+            # {'result': [{'conf': 1.0, 'end': 3.9, 'start': 3.6, 'word': 'XXX'}, {etc...etc], {'conf': 1.0, 'end': 4.08, 'start': 3.9, 'word': 'YYY'}], 'text': 'XXX...YYY'}
             if ("result" in resultsjson and "text" in resultsjson):
+                # we take the first start time, because this is where the whole text starts
+                # we could also calculate the duration here
                 starttime = int(resultsjson["result"][0]["start"])
                 timemin = math.floor(starttime/60)
                 timesek = starttime % 60
