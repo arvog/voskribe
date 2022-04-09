@@ -83,9 +83,24 @@ def convert2audio( file ):
     file_ext = os.path.splitext(file)
     newwav = file_ext[0]+".wav"
     if not os.path.exists(newwav):
-        print("Converting audio from", file_ext[1].upper() , "file:", str(file))
-        callffmpeg = u"ffmpeg -i \'" + str(file) + "\' -nostdin -hide_banner -loglevel error -ac 1 -ar 48000 \'" + newwav + "\'"
+        print("Converting audio from", file_ext[1].upper() , "file:", file)
+        #subprocess ffmpeg can't digest quotes in filenames, so we need to replace them temporarily
+        topop = ['\'', '\"']
+        cleanfilename = file
+        cleanwav = newwav
+        for i in topop:
+            while cleanfilename.find(i) > -1:
+                cleanfilename = cleanfilename.replace(i, "")
+                cleanwav = cleanwav.replace(i, "")
+        if cleanfilename != file:
+            print("renaming", file, "to", cleanfilename)
+            os.replace(file, cleanfilename)
+        #now let's call ffmpeg
+        callffmpeg = u"ffmpeg -i \'" + cleanfilename + "\' -nostdin -hide_banner -loglevel error -ac 1 -ar 48000 \'" + cleanwav + "\'"
         subprocess.call(shlex.split(callffmpeg))
+        if cleanfilename != file:
+            os.replace(cleanfilename, file)
+            os.replace(cleanwav, newwav)
         converted.append(newwav)
         return str(newwav)
     else:
@@ -95,7 +110,7 @@ def convert2audio( file ):
 
 # function for vosk speech recognition
 def transcribe( file ):
-    #if a WAV to the requested media already existed, assume it has already been transcribed
+    #if a WAV to the requested media already exists, assume it has already been transcribed
     if file == "SkIpPeDeeDyP":
         return()
     #open audio stream and check parameters
@@ -161,18 +176,15 @@ def transcribe( file ):
             else:
                results = results + prediction
 
-    # write subs to .srt and fulltext to .transcript file with the same name
+    # write subs to .srt and fulltext to .transcript file with the same name, if user din't opt against it
     root_ext = os.path.splitext(file)
     newfile = root_ext[0] + ".srt"
-    with open(newfile, 'w') as f: f.write(srt.compose(subs))
+    if not nooverwrite or (nooverwrite and not os.path.exists(newfile)):
+        with open(newfile, 'w') as f: f.write(srt.compose(subs))
     newfile = root_ext[0] + ".transcript"
-    with open(newfile, 'w') as f: f.write(results)
-    #old_stdout = sys.stdout
-    #sys.stdout = open(newfile, "w")
-    #print(*results, sep="\n")
-    #sys.stdout.close()
-    #sys.stdout = old_stdout
-    print('Done.         ')
+    if not nooverwrite or (nooverwrite and not os.path.exists(newfile)):
+        with open(newfile, 'w') as f: f.write(results)
+    print('Done.            ')
 
 
 # function to get input location when no files in work dir
@@ -205,6 +217,7 @@ def checkpath( thispath ):
 wavs = []
 others = []
 converted = []
+nooverwrite = False
 
 # getting input files, prompt if there are none in work dir
 currentpath = os.getcwd()
@@ -219,10 +232,14 @@ while len(workable) < 1:
     workable = [x for x in os.listdir(currentpath) if x.endswith(tuple(fileformats))]
 
 # check if overwriting existing transcription files is ok
-if len([x for x in os.listdir(currentpath) if x.endswith('transcript')]) > 0:
-    print("\nThis will overwrite already existing transcripts.")
-    answer = str(input("Continue (Y/n)? "))
-    if answer in ["n", "N"]: exit(1)
+if (len([x for x in os.listdir(currentpath) if x.endswith('transcript')]) > 0) or (len([x for x in os.listdir(currentpath) if x.endswith('srt')]) > 0):
+    answer = str(input("\nOverwrite already existing transcripts/subtitles (Y/n)?"))
+    if answer in ["n", "N"]:
+        nooverwrite = True
+        #remove all files that already have a transcript AND a srt from our list
+        for singlefile in workable:
+            if os.path.exists(currentpath+"\\"+os.path.splitext(singlefile)[0]+".transcript") and os.path.exists(currentpath+"\\"+os.path.splitext(singlefile)[0]+".srt"):
+                workable.remove(singlefile)
 print(f"Going on with {len(workable)} audio/video file(s).")
 
 initvosk()
