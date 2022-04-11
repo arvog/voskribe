@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-from vosk import Model, KaldiRecognizer, SetLogLevel
 import sys
 import subprocess
 import shlex
@@ -11,6 +10,7 @@ import json
 import srt
 import datetime
 from transformers import logging
+from vosk import Model, KaldiRecognizer, SetLogLevel
 from recasepunc import CasePuncPredictor
 from recasepunc import WordpieceTokenizer
 from recasepunc import Config
@@ -93,7 +93,6 @@ def convert2audio( file ):
                 cleanfilename = cleanfilename.replace(i, "")
                 cleanwav = cleanwav.replace(i, "")
         if cleanfilename != file:
-            print("renaming", file, "to", cleanfilename)
             os.replace(file, cleanfilename)
         #now let's call ffmpeg
         callffmpeg = u"ffmpeg -i \'" + cleanfilename + "\' -nostdin -hide_banner -loglevel error -ac 1 -ar 48000 \'" + cleanwav + "\'"
