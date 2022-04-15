@@ -11,9 +11,7 @@ import srt
 import datetime
 from transformers import logging
 from vosk import Model, KaldiRecognizer, SetLogLevel
-from recasepunc import CasePuncPredictor
-from recasepunc import WordpieceTokenizer
-from recasepunc import Config
+from vosk_recasepunc import CasePuncPredictor, WordpieceTokenizer, Config
 
 
 # function to initialize vosk with a user picked language model
@@ -262,7 +260,7 @@ for singlefile in workable:
     if singlefile.endswith('.wav'): wavs.append(singlefile)
     else: others.append(singlefile)
 #transcribe WAV files first, as they might be already existing conversions of other media files
-if len(wavs) >= 1:
+if (len(wavs) >= 1) and not nooverwrite:
     print("Processing", len(wavs), "WAV file(s)...")
     for singlewav in wavs:
         if not (currentpath == os.getcwd()): singlewav = os.path.join(currentpath, singlewav)
