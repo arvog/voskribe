@@ -3,8 +3,7 @@
 import sys
 import subprocess
 import shlex
-import os
-import glob
+from pathlib import Path, PurePath
 import wave
 import json
 import srt
@@ -17,7 +16,7 @@ from vosk_recasepunc import CasePuncPredictor, WordpieceTokenizer, Config
 # function to initialize vosk with a user picked language model
 def initvosk():
     #look for subfolders of current directory with the word "model" in them
-    likelymodels = [x for x in os.scandir(os.getcwd()) if str(x).find('model') > -1]
+    likelymodels = [x for x in Path.cwd().iterdir() if str(x).find('model') > -1]
     if len(likelymodels) < 1:
         print ("\nNo language model found. Download from https://alphacephei.com/vosk/models and unpack in the current folder.")
         exit(1)
@@ -38,7 +37,7 @@ def initvosk():
 
     #look for subfolders of current directory with the word "recasepunc" in them
     global predictor
-    likelymodels = [x for x in os.scandir(os.getcwd()) if str(x).find('recasepunc-') > -1]
+    likelymodels = [x for x in Path.cwd().iterdir() if str(x).find('recasepunc-') > -1]
     if len(likelymodels) < 1:
         print ("\nNo punctuation model found. Continuing without one.")
         predictor = 0
@@ -76,30 +75,32 @@ def initvosk():
 
 
 # function to extract audio from video files or convert other audio formats to WAV
-def convert2audio( file ):
+def convert2audio(file, convertwav=False):
     global converted
-    file_ext = os.path.splitext(file)
-    newwav = file_ext[0]+".wav"
-    if not os.path.exists(newwav):
-        print("Converting audio from", file_ext[1].upper() , "file:", file)
+    if convertwav:
+        newwav = file.with_suffix("_conv.wav")
+    else:
+        newwav = file.with_suffix(".wav")
+    if not Path.exists(newwav):
+        print("Converting audio from", file.suffix.upper() , "file:", file)
         #subprocess ffmpeg can't digest quotes in filenames, so we need to replace them temporarily
         topop = ['\'', '\"']
-        cleanfilename = file
-        cleanwav = newwav
+        cleanfilename = str(file)
+        cleanwav = str(newwav)
         for i in topop:
             while cleanfilename.find(i) > -1:
                 cleanfilename = cleanfilename.replace(i, "")
                 cleanwav = cleanwav.replace(i, "")
         if cleanfilename != file:
-            os.replace(file, cleanfilename)
+            file.replace(cleanfilename)
         #now let's call ffmpeg
         callffmpeg = u"ffmpeg -i \'" + cleanfilename + "\' -nostdin -hide_banner -loglevel error -ac 1 -ar 48000 \'" + cleanwav + "\'"
         subprocess.call(shlex.split(callffmpeg))
         if cleanfilename != file:
-            os.replace(cleanfilename, file)
-            os.replace(cleanwav, newwav)
+            Path(cleanfilename).replace(file)
+            Path(cleanwav).replace(newwav)
         converted.append(newwav)
-        return str(newwav)
+        return newwav
     else:
         print(newwav, "already exists. Skipping.")
         return str("SkIpPeDeeDyP")
@@ -110,12 +111,12 @@ def transcribe( file ):
     #if a WAV to the requested media already exists, assume it has already been transcribed
     if file == "SkIpPeDeeDyP":
         return()
-    #open audio stream and check parameters
-    #TODO: implement conversion for existing WAVs outside of specs
-    wf = wave.open(file, "rb")
+    #open audio stream and check parameters, convert if necessary
+    wf = wave.open(str(file), "rb")
     if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getcomptype() != "NONE":
-        print ("Audio file must be WAV mono PCM. Skipping.")
-        return()
+        print ("Audio file must be WAV mono PCM. Converting.")
+        convfile = convert2audio(file, True)
+        wf = wave.open(str(convfile), "rb")
 
     #set up parameters
     results = []
@@ -135,7 +136,7 @@ def transcribe( file ):
         if len(data) == 0:
             break
         if rec.AcceptWaveform(data):
-            # the results data for a given frame range has the following structure:
+            # the results dict for a given frame range has the following structure:
             # {'result': [{'conf': 1.0, 'end': 3.9, 'start': 3.6, 'word': 'XXX'}, {etc...etc], {'conf': 1.0, 'end': 4.08, 'start': 3.9, 'word': 'YYY'}], 'text': 'XXX...YYY'}
             resultsjson = json.loads(rec.Result())
             # sort words into our subtitle list
@@ -155,8 +156,6 @@ def transcribe( file ):
                 starttime = resultsjson["result"][0]["start"]
                 timemin = int(starttime // 60)
                 timesek = int(starttime % 60)
-                # the following would combine a time code with the text line
-                # res = '{:02d}'.format(timemin)+':'+'{:02d}'.format(timesek)+' '+str(resultsjson['text'])
                 res = str(resultsjson['text'])
                 results.append(res)
                 print(f"{timemin:02d}:{timesek:02d} of {durmin:02d}:{dursek:02d}", end='\r')
@@ -174,26 +173,25 @@ def transcribe( file ):
                results = results + prediction
 
     # write subs to .srt and fulltext to .transcript file with the same name, if user didn't opt against it
-    root_ext = os.path.splitext(file)
-    newfile = root_ext[0] + ".srt"
-    if (not nooverwrite) or (nooverwrite and not os.path.exists(newfile)):
+    newfile = file.with_suffix(".srt")
+    if (not nooverwrite) or (nooverwrite and not Path.exists(newfile)):
         with open(newfile, 'w') as f: f.write(srt.compose(subs))
-    newfile = root_ext[0] + ".transcript"
-    if (not nooverwrite) or (nooverwrite and not os.path.exists(newfile)):
+    newfile = file.with_suffix(".transcript")
+    if (not nooverwrite) or (nooverwrite and not Path.exists(newfile)):
         with open(newfile, 'w') as f: f.write(results)
     print('Done.            ')
 
 
 # function to get input location when no files in work dir
-def checkpath( thispath ):
+def checkpath(thispath, fileformats):
     #if user gives us a single file, check file type and progress or exit
-    if os.path.isfile(thispath):
-        if thispath.endswith('.wav'):
+    if Path.is_file(thispath):
+        if PurePath(thispath).suffix == '.wav':
             print("Going on with specified WAV file.")
             initvosk()
             transcribe(thispath)
             exit(1)
-        elif thispath.endswith(tuple(fileformats)):
+        elif str("*"+PurePath(thispath).suffix) in fileformats:
             print("Going on with specified media file.")
             initvosk()
             transcribe(convert2audio(thispath))
@@ -202,11 +200,11 @@ def checkpath( thispath ):
             print("Sorry, can only transcribe media files.")
             return []
     #if user gives us a directory, check for files we can process inside it
-    if os.path.isdir(thispath):
+    if Path.is_dir(thispath):
         global workable
         for x in fileformats:
             print(f"checking for {x}...")
-            checked = glob.glob(os.path.join(thispath, x))
+            checked = sorted(thispath.glob(x))
             if len(checked) > 0: workable.extend(checked)
             print(f"found {len(checked)}")
         if len(workable) < 1:
@@ -216,31 +214,34 @@ def checkpath( thispath ):
 
 
 #set up some lists we will use for batch processing
+fileformats = ['*.wav', '*.mkv', '*.mp4', '*.webm', '*.m4a', '*.mp3', '*.ogg', '*.opus']
 workable = []
 wavs = []
 others = []
 converted = []
 nooverwrite = False
 
-# getting input files, prompt if there are none in work dir
-currentpath = os.getcwd()
-fileformats = ['*.wav', '*.mkv', '*.mp4', '*.webm', '*.m4a', '*.mp3', '*.ogg', '*.opus']
-for x in fileformats:
-    checked = glob.glob(os.path.join(currentpath, x))
-    if len(checked) > 0: workable.extend(checked)
-if len(workable) > 1:
-    answer = str(input(f"Found {len(workable)} in current directory. Transcribe those (y/N)? "))
-    if answer not in ["y", "Y"]: workable = []
-while len(workable) < 1:
-    print("\nNo usable media files found in directory. \nDo you want to transcribe from a file/directory elsewhere?")
-    currentpath = checkpath(str(input("path: ")))
+#getting input files if not provided as an argument, prompt if there are none in work dir
+if len(sys.argv) > 1:
+    currentpath = checkpath(Path(sys.argv[1]), fileformats)
+else:
+    currentpath = Path.cwd()
+    for x in fileformats:
+        checked = sorted(currentpath.glob(x))
+        if len(checked) > 0: workable.extend(checked)
+    if len(workable) > 1:
+        answer = str(input(f"Found {len(workable)} in current directory. Transcribe those (y/N)? "))
+        if answer not in ["y", "Y"]: workable = []
+    while len(workable) < 1:
+        print("\nNo usable media files found in directory. \nDo you want to transcribe from a file/directory elsewhere?")
+        currentpath = checkpath(Path(input("path: ")), fileformats)
 print(f"{len(workable)} suitable media files total")
 
 # check if overwriting existing transcription files is ok
-toremove1 = glob.glob(os.path.join(currentpath, '*.transcript'))
-toremove2 = glob.glob(os.path.join(currentpath, '*.srt'))
+toremove1 = sorted(currentpath.glob('*.transcript'))
+toremove2 = sorted(currentpath.glob('*.srt'))
 for t in toremove1:
-    if (os.path.splitext(t)[0]+".srt") not in toremove2:
+    if t.with_suffix(".srt") not in toremove2:
         toremove1.remove(t)
 
 if len(toremove1) > 0:
@@ -248,34 +249,36 @@ if len(toremove1) > 0:
     if answer in ["n", "N"]:
         nooverwrite = True
         #remove all files that already have a transcript AND a srt from our list
-        for singlefile in workable:
-            if (os.path.splitext(singlefile)[0]+".transcript") in toremove1:
-                workable.remove(singlefile)
+        workable[:] = [singlefile for singlefile in workable if not singlefile.with_suffix(".transcript") in toremove1]
+
+#if there is no more file in our list, break
+if len(workable) < 1:
+    print("No new files to transcribe. Stopping.")
+    exit(1)
 print(f"Continuing with {len(workable)} audio/video file(s).")
 
 initvosk()
 
 #seperate WAV files from other media files
 for singlefile in workable:
-    if singlefile.endswith('.wav'): wavs.append(singlefile)
+    if singlefile.suffix == '.wav': wavs.append(singlefile)
     else: others.append(singlefile)
 #transcribe WAV files first, as they might be already existing conversions of other media files
-if (len(wavs) >= 1) and not nooverwrite:
+if (len(wavs) >= 1):
     print("Processing", len(wavs), "WAV file(s)...")
     for singlewav in wavs:
-        if not (currentpath == os.getcwd()): singlewav = os.path.join(currentpath, singlewav)
         transcribe(singlewav)
 #then go on to convert and transcribe other media files
 if len(others) >= 1:
     print("\nProcessing", len(others), "media file(s)...")
     for singleother in others:
-        if not (currentpath == os.getcwd()): singleother = os.path.join(currentpath, singleother)
         transcribe(convert2audio(singleother))
 #if we created new WAVs, ask user whether to delete or keep them
 if len(converted) >= 1:
     print("\nCreated", len(converted), "WAV files")
     answer = str(input("Keep them (y/N)? "))
-    if answer in ["y", "Y"]: exit(1)
+    if answer in ["y", "Y"]:
+        exit(1)
     else:
-        for todelete in converted: os.remove(todelete)
+        for todelete in converted: todelete.unlink()
 
