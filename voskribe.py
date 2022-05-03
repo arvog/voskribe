@@ -116,11 +116,15 @@ def transcribe( file ):
     if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getcomptype() != "NONE":
         print ("Audio file must be WAV mono PCM. Converting.")
         convfile = convert2audio(file, True)
+        if convfile == "SkIpPeDeeDyP":
+            return()
         wf = wave.open(str(convfile), "rb")
 
     #set up parameters
+    global diarization
     results = []
     subs = []
+    diary = []
     WORDS_PER_LINE = 7
     duration = wf.getnframes() / wf.getframerate()
     durmin = int(duration // 60)
@@ -129,6 +133,17 @@ def transcribe( file ):
     rec.SetWords(True)
 
     print('Transcribing audio file:', str(file))
+
+    if diarization:
+        try:
+            import diarize
+            dia_obj = diarize(file)
+            diarization_dict = dia_obj.do_diarization()
+            dia_counter = 0
+        except:
+            print("Could not import diarize class.")
+            diarization = False
+            dia_counter = -1
 
     #transcribe audio stream and print the progress
     while True:
@@ -159,6 +174,14 @@ def transcribe( file ):
                 res = str(resultsjson['text'])
                 results.append(res)
                 print(f"{timemin:02d}:{timesek:02d} of {durmin:02d}:{dursek:02d}", end='\r')
+
+            # collect diarized text, if chosen
+            #if "result" in resultsjson and diarization:
+            #    nextspeakerdict = diarization_dict[dia_counter]
+            #    nextspeakertime = nextspeakerdict['start']
+            #    while resultsjson["result"][word]["start"] < nextspeakertime:
+            #        diary.append(resultsjson["result"][word]["word"])
+
 
     # feed the fulltext lines through recasepunc, if we can
     if predictor != 0:
@@ -220,6 +243,7 @@ wavs = []
 others = []
 converted = []
 nooverwrite = False
+diarization = False
 
 #getting input files if not provided as an argument, prompt if there are none in work dir
 if len(sys.argv) > 1:
@@ -256,6 +280,11 @@ if len(workable) < 1:
     print("No new files to transcribe. Stopping.")
     exit(1)
 print(f"Continuing with {len(workable)} audio/video file(s).")
+
+answer = str(input("\nDiarize recognized speech (y/N)?"))
+if answer in ["y", "Y"]:
+    print("not yet implemented")
+    diarization = False
 
 initvosk()
 
