@@ -78,7 +78,7 @@ def initvosk():
 def convert2audio(file, convertwav=False):
     global converted
     if convertwav:
-        newwav = file.with_suffix("_conv.wav")
+        newwav = file.parent / f"{file.stem}_conv.wav"
     else:
         newwav = file.with_suffix(".wav")
     if not Path.exists(newwav):
@@ -91,12 +91,12 @@ def convert2audio(file, convertwav=False):
             while cleanfilename.find(i) > -1:
                 cleanfilename = cleanfilename.replace(i, "")
                 cleanwav = cleanwav.replace(i, "")
-        if cleanfilename != file:
+        if cleanfilename != str(file):
             file.replace(cleanfilename)
         #now let's call ffmpeg
         callffmpeg = u"ffmpeg -i \'" + cleanfilename + "\' -nostdin -hide_banner -loglevel error -ac 1 -ar 48000 \'" + cleanwav + "\'"
         subprocess.call(shlex.split(callffmpeg))
-        if cleanfilename != file:
+        if cleanfilename != str(file):
             Path(cleanfilename).replace(file)
             Path(cleanwav).replace(newwav)
         converted.append(newwav)
