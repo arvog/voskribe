@@ -173,6 +173,7 @@ def transcribe( file ):
                 timesek = int(starttime % 60)
                 res = str(resultsjson['text'])
                 results.append(res)
+                print(f"{res}                      ")
                 print(f"{timemin:02d}:{timesek:02d} of {durmin:02d}:{dursek:02d}", end='\r')
 
             # collect diarized text, if chosen
@@ -281,10 +282,10 @@ if len(workable) < 1:
     exit(1)
 print(f"Continuing with {len(workable)} audio/video file(s).")
 
-answer = str(input("\nDiarize recognized speech (y/N)?"))
-if answer in ["y", "Y"]:
-    print("not yet implemented")
-    diarization = False
+#answer = str(input("\nDiarize recognized speech (y/N)?"))
+#if answer in ["y", "Y"]:
+#    print("not yet implemented")
+#    diarization = False
 
 initvosk()
 

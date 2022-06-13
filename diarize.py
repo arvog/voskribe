@@ -5,7 +5,7 @@ from pyannote.core import Annotation, Segment
 import time
 import numpy
 import glob
-import os
+from pathlib import Path
 import sys
 from scipy.spatial.distance import cdist
 
@@ -16,7 +16,7 @@ class diarize:
 
         #where is the stuff we need for our work
         #ROOT_DIR = "/Users/inter/Documents/!code/pyannote/pyannote-audio"
-        self.EMBEDDINGS_DIR = r"\\DATEN\Schöpferwissen\training"
+        self.EMBEDDINGS_DIR = Path(r"\\DATEN\Schöpferwissen\.training")
 
         #define some variables for identifying recognized speakers
         self.speakers = {"known": [], "identified": []}
@@ -24,16 +24,16 @@ class diarize:
         self.speakerchanges = []
 
         #fetch all embeddings from directory and load them into our speakers dict
-        all_embeds = glob.glob(os.path.join(self.EMBEDDINGS_DIR, '*.emb'))
+        all_embeds = sorted(self.EMBEDDINGS_DIR.glob('*.emb'))
         for e in all_embeds:
             with open(e, "r") as file: some_embed = numpy.loadtxt(file, ndmin=2)
-            if '_thomas_' in e:
+            if '_thomas_' in e.stem:
                 self.speakers["known"].append({"name": "Thomas", "embedding": some_embed})
-            elif '_julia_' in e:
+            elif '_julia_' in e.stem:
                 self.speakers["known"].append({"name": "Julia", "embedding": some_embed})
-            elif '_heiko_' in e:
+            elif '_heiko_' in e.stem:
                 self.speakers["known"].append({"name": "Heiko", "embedding": some_embed})
-            elif '_julian_' in e:
+            elif '_julian_' in e.stem:
                 self.speakers["known"].append({"name": "Julian", "embedding": some_embed})
         print("loaded", len(self.speakers["known"]), "signatures")
 
@@ -88,6 +88,9 @@ class diarize:
 
         #iterate through recognized speaker changes and clean up
         for speech_turn, track, speaker in dia.itertracks(yield_label=True):
+            print(speech_turn)
+            print(track)
+            print(speaker)
             #if measured duration is below one second we just ignore it
             if speech_turn.end - speech_turn.start < 1.:
                 continue
